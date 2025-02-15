@@ -1,1 +1,7 @@
 _FileInformation.txt
+*.vpj
+*.vpw
+*.vpwhistxml
+*.vtg
+_Output.txt
+*_Output.txt
