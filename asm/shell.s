@@ -814,7 +814,7 @@ ViewImage mx %00
          ldx #$1FF ; This is sketchy, we need to place the stack
          txs
 
-         lda #$9C00
+         lda #$9D00
          tcd      ; shove the direct page on top of the SCB table
 
          pea #$0101 ; B = 1, so the stack is drawing onto SHR
@@ -827,18 +827,18 @@ ViewImage mx %00
          lda $C010      ; clear strobe
 
 ]viewer
-         _border 0
+         ;_border 0
          rep #$30
          jsr vsync150      ; wait for scanline 150
-         _border 2
+         ;_border 2
 
          sep #$20
 :p0      jsl :rtl          ; Blit Image 0
 
-         _border 0
+         ;_border 0
          rep #$30
          jsr vsync150      ; wait for scanlien 150
-         _border 2
+         ;_border 2
 
          sep #$20
 :p1      jsl :rtl          ; Blit Image 1

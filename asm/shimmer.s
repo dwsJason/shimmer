@@ -51,7 +51,7 @@ CompileShimmer ent
 
 	clc
 	lda pInPixels
-	adc #$7c00
+	adc #$7d00
 	sta pInSCB
 	lda pInPixels+2
 	sta pInSCB+2
