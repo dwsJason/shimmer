@@ -21,7 +21,7 @@
 
          ext FadeToBorderLong
          ext LZ4_Unpack
-         ext shimmer
+         ext CompileShimmer
 
 
 ;
@@ -784,6 +784,21 @@ ViewImage mx %00
          plb
          fin
 ;========================> TEMP
+
+         jsl CompileShimmer
+
+         phk
+         plb
+
+         ; Self Modify the dispatches
+         lda pCodeBank0
+         sta :p0+1
+         lda pCodeBank0+1
+         sta :p0+2
+         lda pCodeBank1
+         sta :p1+1
+         lda pCodeBank1+1
+         sta :p1+2
       
 ; Display Loop
          php
@@ -811,11 +826,21 @@ ViewImage mx %00
          mx %11
          lda $C010      ; clear strobe
 
-]viewer  rep #$30
-
+]viewer
+         _border 0
+         rep #$30
          jsr vsync150      ; wait for scanline 150
+         _border 2
+
+         sep #$20
 :p0      jsl :rtl          ; Blit Image 0
+
+         _border 0
+         rep #$30
          jsr vsync150      ; wait for scanlien 150
+         _border 2
+
+         sep #$20
 :p1      jsl :rtl          ; Blit Image 1
 
          sep #$30
@@ -826,6 +851,7 @@ ViewImage mx %00
          rep #$30
          phk
          plb
+
          ldx :stack
          txs
 
