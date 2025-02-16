@@ -661,17 +661,17 @@ DoOpen
 
 :looks_like_c1
               
-        ; Read in the File
-		; Read 32K
-		lda #$8000
-        sta p:rsize
-        stz p:rsize+2
+         ; Read in the File
+	; Read 32K
+         lda #$8000
+         sta p:rsize
+         stz p:rsize+2
 
 		; pointer where to read
-		lda <pImageBank
-		sta p:rbuf+0
-		lda <pImageBank+2
-        sta p:rbuf+2
+         lda <pImageBank
+         sta p:rbuf+0
+         lda <pImageBank+2
+         sta p:rbuf+2
 
         _Read p:read
        
@@ -680,8 +680,7 @@ DoOpen
 :close_exit
          _Close p:close
          bcs   :trouble
-;         brl   PlayAnimation
-		rts
+         brl   ViewImage
 
 :required_banks
 :temp
@@ -746,10 +745,10 @@ ZeroDisplayPixels mx %00
 *
 CopyPalettes mx %00
 
-		lda <pImageBank+2
-		ora #$0100
-		xba
-		sta |:mvn+1
+        lda <pImageBank+2
+        ora #$0100
+        xba
+        sta |:mvn+1
 
         ldx #$7D00 ; Temp buffer
         ldy #$9D00 ; $E19D00, the SBCS
@@ -762,189 +761,90 @@ CopyPalettes mx %00
 
 *******************************************************************************
 
-LoopAnimationFlag dw 0 ; Set to 1 while animation is looping
-LastTickCount adrl 0
-
 pData = $FC
 
-PlayAnimation mx %00
-
-        ; First verify that the file, looks like what it should be
-        stz <pData
-        lda <banks_data
-        and #$00FF
-        sta <pData+2
-
-        ; pData now points to the first 64KB of the file
-
-        ; Check 'GSLA'
-        lda [pData]
-        cmp #'GS'
-        bne :BadHeader
-
-        ldy #2
-        lda [pData],y
-        cmp #'LA'
-        bne :BadHeader
-        iny
-        iny
-
-        ; Check Size Field for Sanity
-        lda [pData],y
-        cmp p:eof
-        bne :BadSize
-        iny
-        iny
-
-        lda [pData],y
-        cmp p:eof+2
-        bne :BadSize
-
-        ; Probably check more things
-
-        brl :good_header
-
-:BadSize
-:BadHeader
-        ; Notif
-
-        jsr DoInvalidFile
-
-        jsr FreeBanks
-        rts
-
-:good_header
+ViewImage mx %00
 
         ; The mouse cursor doesn't play nice with what we're doing
-        _HideCursor
+        jsr HideCursorEtc
 
-        lda #$2FF
-        ldx #$9D00 ; $E19D00, the SBCS
-        ldy #<scbs_and_palette ; Temp buffer
-        mvn $E1,^scbs_and_palette
-        ; this happens to end with the bank happy
-		
-		
-	; Pointer to the INITial Frame Data
-        lda <banks_data
-        and #$00FF
-        sta <pData+2
+;========================> TEMP
+         do 1
+         lda <pImageBank+1
+         and #$FF00
+         ora #$0001
+         sta :mvn+1
 
-	ldx #28    ; Header of file + Header of INIT Frame
+         lda #$7FFF ; length
+         ldx <pImageBank
+         ldy #$2000   ; poking to 01/2000
+:mvn     mvn $01,$01
+	
+         phk
+         plb
+         fin
+;========================> TEMP
+      
+; Display Loop
+         php
+         phd      ; save direct page
 
-        ; X = Low
-        ; A = High
-		
-:init	jsl $000000 ; for the first frame
+         sei
 
+         tsc
+         sta :stack
 
+         _auxON
 
-        ; Tell make sure looping is enabled
+         ldx #$1FF ; This is sketchy, we need to place the stack
+         txs
 
-        lda #1
-        sta LoopAnimationFlag
+         lda #$9C00
+         tcd      ; shove the direct page on top of the SCB table
 
-        ; Initialize Tick
-
-        pha
-        pha
-        Tool $1006  ; TickCount
-        pla     
-        plx
-
-        sta LastTickCount
-        stx LastTickCount+2
-
-        ; load up a pointer to data
-:loop
-	stz  <pData
-		
-	ldy  #24
-	lda [pData],y
-	clc
-	adc #28  ; 20 byte header + 8 bytes skip into the ANIM Block
-        tax
-		 
-        lda pData+2
-
-	; play the animation
-        ; X = Low
-        ; A = High
-        			
-:play   jsl $000000
-
-        lda LoopAnimationFlag
-        bne :loop
-
-        ;
-        ; Let the Memory go
-        ;
-        jsr FreeBanks
-
-        lda #$2FF
-        ldx #<scbs_and_palette ; Temp buffer
-        ldy #$9D00 ; $E19D00, the SBCS
-        mvn ^scbs_and_palette,$01
-        phk
-        plb
+         pea #$0101 ; B = 1, so the stack is drawing onto SHR
+         plb
+         plb
 
 
-        ;
-        ; Redraw the Screen
-        ;
-        Tool $2a0f ; DrawMenuBar
+         sep #$30
+         mx %11
+         lda $C010      ; clear strobe
 
-        PushLong #0
-        Tool $390E ; RefreshDesktop
+]viewer  rep #$30
 
-        ;
-        ; Show the Mouse
-        ;
-        _ShowCursor
+         jsr vsync150      ; wait for scanline 150
+:p0      jsl :rtl          ; Blit Image 0
+         jsr vsync150      ; wait for scanlien 150
+:p1      jsl :rtl          ; Blit Image 1
 
-        rts
+         sep #$30
+         lda $C000
+         bpl ]viewer       ; branch no key
+         lda $C010         ; clear strobe / eat the key
+         
+         rep #$30
+         phk
+         plb
+         ldx :stack
+         txs
 
-EndOfAnimFrame ent
-        phk
-        plb
-:check_key
-        pha
-        PushWord #$000A      ; only mousedown, or keydown
-        PushPtr :TaskRecord  ; NOTE: using our own local record
-        _TaskMaster
-        pla
-        beq :no_action
+         _auxOFF
+                  
+         pld
+         plp
 
-        lda :tType
-        cmp #1
-        beq :mousedown
-        cmp #3
-        beq :keydown
+         phk
+         plb
+;------------------------------
+; restore
 
-:no_action
-        ; We still need to make sure 1 tick has elapsed
-        pha
-        pha
-        Tool $1006  ; TickCount
-        pla     
-        plx
+         jmp ShowCursorEtc
+         rts
+:rtl     rtl
 
-        cmp LastTickCount
-        beq :check_key
-        
-        sta LastTickCount 
+:stack   ds 2     ; Need to save the stack
 
-        clc  ; keep playing the animation
-        rtl
-:mousedown
-:keydown
-:stop
-        ; Tell the Animation Play to not loop
-        stz LoopAnimationFlag
-        ; Signal to the Anim Player, that we're done playing
-        ; Animation has been interrupted
-        sec
-        rtl
 ;
 ; We don't want to corrupt the original TaskRecord
 ;
@@ -1027,9 +927,9 @@ HideCursorEtc mx %00
         mvn $E1,^scbs_and_palette
         ; this happens to end with the bank happy
 
-		phk
-		plb
-		rts
+        phk
+        plb
+        rts
 
 *******************************************************************************
 *
@@ -1063,18 +963,18 @@ ShowCursorEtc mx %00
 
 *******************************************************************************
 *
-* Wait for Scanline 200
+* Wait for Scanline 150
 *
-vsync	mx %00
+vsync150	mx %00
 	sei
 	php
 ]lp
 	ldal $e0c02e
 	asl
 	and #$00FF
-	cmp #200
+	cmp #150
 	bcc ]lp
-	cmp #202
+	cmp #152
 	bcs ]lp
 	plp
 	rts	
