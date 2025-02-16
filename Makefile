@@ -64,7 +64,7 @@ disk image: gs
 	cadius addfile $(TARGETNAME).po /$(TARGETNAME) ./$(TARGETNAME).sys16
 
 run: image
-	CrossRunner
+	"C:\Program Files\Crossrunner\Crossrunner.exe"
 
 clean:
 	@echo Remove $(TARGETNAME).sys16

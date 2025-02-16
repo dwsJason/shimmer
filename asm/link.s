@@ -7,9 +7,16 @@
 	;xpl					; Add ExpressLoad
 	
 *----------------------------------------------	
+	asm init.s
+	ds 0
+	knd #$1010		; static+code+initialization
+	ali None
+	lna fun2gs		; init segment
+	sna init
+*----------------------------------------------	
 	asm shell.s
 	ds 0	   	; padding
-	knd #$1100  ; kind
+	knd #$1000  ; kind
 	ali None	; alignment
 	lna shimmer	; load name
 	sna start	; segment name
@@ -19,6 +26,6 @@
 	knd #$1100  ; kind
 	ali None    ; alignment
 	lna shimmer ; load name
-	sna start   ; segment name, doesn't work to try and merge segments here
+	sna view    ; segment name
 *----------------------------------------------	
 

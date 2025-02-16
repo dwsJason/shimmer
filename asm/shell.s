@@ -6,7 +6,8 @@
 *
 *  Updated for Merlin 32  07/11/2020
 *
-*  shimmer.s contains "the viewer"
+*  shimmer.s, halftone images 02/16/2025
+*
 *
 
 *   OA-F  "damnmenu" to find menu definitions
@@ -15,8 +16,12 @@
          rel
          dsk   shell.l
          use   drm.macs
+         use   common.i
+         use   dp.i
 
-         ext   shimmer
+         ext FadeToBorderLong
+         ext LZ4_Unpack
+         ext shimmer
 
 
 ;
@@ -24,8 +29,6 @@
 ;
 banks_count equ $80
 banks_data  equ $82
-
-
 
 vidmode  =     $8080      ;Video mode for QD II (320) ($8000)
                           ;640 mode  ($8080)
@@ -83,8 +86,13 @@ SetRes   sep   $30        ; 8-bit mode
          jsl   tool       ; CompactMem
 
 ;-------------------------------------------------------------------------------
+         jsl FadeToBorderLong
+
+	 jsr ZeroDisplayPixels
+
+;-------------------------------------------------------------------------------
 ;
-; Startup Way too many Tools
+; Startup way too many tools
 ;
 
          PushLong #0      ;result space
@@ -122,12 +130,77 @@ SetRes   sep   $30        ; 8-bit mode
 ;
 ;;-------------------------------------------------------------------------------
 ;
-;:shadow_error asc '40\GSLA Player requires the Super Hires shadow'
+;:shadow_error asc '40\Shimmer requires the Super Hires shadow'
 ;        asc ' memory to function properly.\^#5',00
 ;
 ;*-----------------------------
+
 :NoError
+
+;------------------------------------------------------------------------------
+; Allocate all the memory we're going to use, up-front
+;
+		lda #0
+		ldx #1
+		jsr getmem
+		bcs :oom
+		jsr dereference
+		sta <pImageBank
+		stx <pImageBank+2
+
+		lda #0
+		ldx #1
+		jsr getmem
+		bcs :oom
+		jsr dereference
+		sta <pCodeBank0
+		stx <pCodeBank0+2
+
+		lda #0
+		ldx #1
+		jsr getmem
+		bcs :oom
+		jsr dereference
+		sta <pCodeBank1
+		stx <pCodeBank1+2
+
+		lda #0
+		ldx #1
+		jsr getmem
+		bcs :oom
+		jsr dereference
+		sta <pIndexBank
+		stx <pIndexBank+2
+
+;------------------------------------------------------------------------------
+
+		; Setup the Default Image
+
+		;pea ^yesbg
+		;pea yesbg
+		;pei pImageBank+2
+		;pei pImageBank
+		;jsl LZ4_Unpack
+
          jmp   DoMenu
+:oom
+         lda #0
+         pha
+         pha
+         pha
+         pha
+         PushLong #:oom_error
+         Tool $590e ; AlertWindow
+         pla
+         brl ShutDown
+
+*------------------------------------------------------------------------------
+
+:oom_error asc '40\Shimmer requires 256K of free'
+        asc ' memory to function properly.\^#5',00
+
+*------------------------------------------------------------------------------
+
 
 :trouble
          pha
@@ -149,7 +222,7 @@ DoMenu
 ;         bcc   :ov3
 ;         brl   ShutDown
 ;:ov3                      ;handle in a and x
-;         jsl   dereference
+;         jsr   dereference
 ;
 ;         sta   p:rbuf     ; set up Disk I/O buffer
 ;         txa
@@ -320,27 +393,48 @@ TLout    _TLShutDown
 QuitParms adrl $0
          ds    2
 
-getmem   ent
-         sta   :sizelo+1
-         stx   :sizehi+1
-         lda   #0
-         pha
-         pha              ; Space for Results
-:sizehi  pea   #$0000
-:sizelo  pea   #$ffff     ; Size in Bytes of Block 64k
+*******************************************************************************
+* getmem
+*
+* A = size Low
+* X = size High
+*
+* Destroys Y
+*
+* Return AX as handle
+* c = 0   success
+* c = 1   failed
+*
+getmem	 mx %00
+         ldy #0
+         phy			  ; Space for Results
+         phy              ; Space for Results
+         phx              ; size in bytes high byte
+         pha              ; size in bytes low byte
          lda   ProgID
          pha
-gm_atr   pea   #%1100000000011100 ; Attributes
-         lda   #0
-         pha
-         pha              ; Ptr to where Block is to begin
+gm_atr   pea   #%1100000000011100 ; Attributes, page aligned, not allowed to wrap banks
+         phy
+         phy              ; Ptr to where Block is to begin
          ldx   #$0902
          jsl   tool       ; NewHandle
          pla
          plx
          rts
 
-dereference ent
+*******************************************************************************
+* dereference memory handle
+*
+* Input:
+*    AX = pHandle
+*
+* Wrecks Y
+* C unaffected
+*
+* Output:
+*    AX = pMemory
+*
+dereference mx %00
          pei   0
          pei   2
          sta   0
@@ -356,8 +450,7 @@ dereference ent
          pla
          sta   0
          tya
-         rtl
-
+         rts
 
 *   Resume routine for Control-Y vector...
 
@@ -483,10 +576,10 @@ AboutTemplate
          da    0
          adrl  0
 :Item3Txt
-         str   '(C) 2020 DreamWorld Software'
+         str   '(C) 2025 DreamWorld Software'
 
 :Item2   dw    2
-         dw    13,122,22,251 ;rect
+         dw    13,122,22,270 ;rect
          da    StatTextItem+ItemDisable
          adrl  :Item2Txt
          da    0
@@ -547,91 +640,48 @@ DoOpen
          _GET_EOF p:get_eof
          bcc   :eof_seems_good
 :err_close
-        jsr FreeBanks
+;        jsr FreeBanks
          _Close p:close
          bra    :trouble
 
 :eof_seems_good
 
-*
-*  Allocate memory for loading the animation
-*  Will do an allocation per 64k required, since
-*  this type of animation requires, the file be bank aligned
-*  so will load in 64KB chunks
-*
-*
-* I've decided that using Tools to spawn a dialog with a loading meter
-* is actually more work (mentally), than just stomping on the frame buffer
-*
-		 
-; need to allocate each bank separate, to guarantee
-; the alignment for the player
-; perhaps loop through, and store a list of allocated banks
-; starting at $80 in the DP, so DP,x addressing can get at
-; them in the player		 
-	 
-        ; while banks_count < required_banks
-    
+	; Check to see if the file is the right size to be a C1
+	; if it is, we already have the memory at pImageBank	 
         lda p:eof+2
-        inc
-        sta :required_banks
+		bne :err_close
                     
-]loop
-        lda <banks_count
-        cmp :required_banks
-        bcs :we_have_memory
-
-        ; Ask for 64K
-        lda #$0000
-        ldx #$0001
-        jsr getmem
-        bcs :mem_failed
-
-        jsl dereference
-
-        txa
-        jsr AddBank
-
-        bra ]loop
-
-
-:mem_failed
-        jsr FreeBanks
+		lda #$8000
+		cmp p:eof
+		beq :looks_like_c1	
 
         ; Pop up an Alert
 
         bra :err_close
 
-:we_have_memory
+:looks_like_c1
               
         ; Read in the File
+		; Read 32K
+		lda #$8000
+        sta p:rsize
+        stz p:rsize+2
 
-        ; Size 64k at a time
-        stz p:rsize
-        lda #$0001
-        sta p:rsize+2
-
-        ldx #0
-        stx p:rbuf+0
-]read_loop
-        lda <banks_data,x
-        and #$00FF
+		; pointer where to read
+		lda <pImageBank
+		sta p:rbuf+0
+		lda <pImageBank+2
         sta p:rbuf+2
 
-        phx
         _Read p:read
-        plx
        
         bcs   :err_close
-
-        inx
-        cpx :required_banks
-        bcc ]read_loop
 
 :close_exit
          _Close p:close
          bcs   :trouble
-         brl   PlayAnimation
+;         brl   PlayAnimation
+		rts
 
 :required_banks
 :temp
@@ -671,6 +721,46 @@ p:eof     adrl 0   ; end of file
 *
 scbs_and_palette
         ds 768
+
+*******************************************************************************
+ZeroDisplayPixels mx %00
+
+		_shadowON
+
+		lda #0
+		sta >$012000
+		lda #{160*200}-3	; length
+		ldx #$2000			; source
+		ldy #$2002			; dest
+		mvn $01,$01
+
+		phk
+		plb
+
+		rts
+
+*******************************************************************************
+*******************************************************************************
+*
+* Copy the palettes from the current image onto the screen
+*
+CopyPalettes mx %00
+
+		lda <pImageBank+2
+		ora #$0100
+		xba
+		sta |:mvn+1
+
+        ldx #$7D00 ; Temp buffer
+        ldy #$9D00 ; $E19D00, the SBCS
+        lda #$2FF
+:mvn    mvn 0,0
+        phk
+        plb
+
+		rts
+
+*******************************************************************************
 
 LoopAnimationFlag dw 0 ; Set to 1 while animation is looping
 LastTickCount adrl 0
@@ -922,3 +1012,71 @@ FreeBanks mx %00
         rts
 
 ********************************************************************************
+*******************************************************************************
+*
+* Hide Cursor, ands Save palettes
+*
+HideCursorEtc mx %00
+
+        ; The mouse cursor doesn't play nice with what we're doing
+        _HideCursor
+
+        lda #$2FF
+        ldx #$9D00 ; $E19D00, the SBCS
+        ldy #<scbs_and_palette ; Temp buffer
+        mvn $E1,^scbs_and_palette
+        ; this happens to end with the bank happy
+
+		phk
+		plb
+		rts
+
+*******************************************************************************
+*
+* Show Cursor, and Restore Palettes + Desktop
+*
+ShowCursorEtc mx %00
+
+        lda #$2FF
+        ldx #<scbs_and_palette ; Temp buffer
+        ldy #$9D00 ; $E19D00, the SBCS
+        mvn ^scbs_and_palette,$01
+        phk
+        plb
+
+
+        ;
+        ; Redraw the Screen
+        ;
+        Tool $2a0f ; DrawMenuBar
+
+        PushLong #0
+        Tool $390E ; RefreshDesktop
+
+        ;
+        ; Show the Mouse
+        ;
+        _ShowCursor
+
+        rts
+
+
+*******************************************************************************
+*
+* Wait for Scanline 200
+*
+vsync	mx %00
+	sei
+	php
+]lp
+	ldal $e0c02e
+	asl
+	and #$00FF
+	cmp #200
+	bcc ]lp
+	cmp #202
+	bcs ]lp
+	plp
+	rts	
+
+*******************************************************************************
